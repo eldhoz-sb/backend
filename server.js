@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { OAuth2Client } = require("google-auth-library");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const mongoose = require("mongoose");;
 
 const CLIENT_ID = process.env.CLIENT_ID; // Get Client ID from local environment
 const MONGODB_URI = process.env.MONGODB_URI; // Use the MongoDB Atlas connection string from environment variables
@@ -27,18 +27,22 @@ app.use(
   })
 );
 
-// Set up MongoDB Atlas
-const client = new MongoClient(MONGODB_URI, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
-});
-client.connect();
+mongoose.connect(MONGODB_URI);
 
-const database = client.db(DATABASE_NAME);
-const collection = database.collection(COLLECTION_NAME);
+const database = mongoose.connection;
+database.on("error", console.error.bind(console, "MongoDB connection error:"));
+database.once("open", () => {
+  console.log("Connected to the database");
+});
+
+const UserSchema = new mongoose.Schema({
+  _id: String,
+  name: String,
+  picture: String,
+  email: String,
+});
+
+const UserModel = mongoose.model(COLLECTION_NAME, UserSchema);
 
 app.post("/handleAccessToken", async (req, res) => {
   try {
@@ -55,13 +59,19 @@ app.post("/handleAccessToken", async (req, res) => {
 
     const userId = payload.sub;
 
-    const existingUser = await collection.findOne({ _id: userId }); // Check if user details already available in the database, if yes update details, if not add a new user to the database
+    const existingUser = await UserModel.findOne({ _id: userId }); // Check if user details already available in the database, if yes update details, if not add a new user to the database
 
     if (!existingUser) {
-      await collection.insertOne({ _id: userId, ...payload });
+      const newUser = new UserModel({
+        _id: userId,
+        name: payload.name,
+        picture: payload.picture,
+        email: payload.email,
+      });
+      await newUser.save();
       console.log("Inserted document with _id:", userId);
     } else {
-      await collection.updateOne({ _id: userId }, { $set: { ...payload } });
+      await UserModel.updateOne({ _id: userId }, { $set: { ...payload } });
       console.log(
         "User already exists with _id:",
         userId,
